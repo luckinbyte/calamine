@@ -133,6 +133,10 @@ where
         }
     }
 
+    fn getcolor(&mut self, row:u16, col:u16) -> Option<String>{
+        None
+    }
+
     #[cfg(feature = "picture")]
     fn pictures(&self) -> Option<Vec<(String, Vec<u8>)>> {
         match *self {

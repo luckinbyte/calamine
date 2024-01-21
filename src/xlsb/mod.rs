@@ -473,6 +473,10 @@ impl<RS: Read + Seek> Reader<RS> for Xlsb<RS> {
     fn metadata(&self) -> &Metadata {
         &self.metadata
     }
+    
+    fn getcolor(&mut self, row:u16, col:u16) -> Option<String>{
+        None
+    }
 
     /// MS-XLSB 2.1.7.62
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsbError> {

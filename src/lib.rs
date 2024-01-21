@@ -227,6 +227,9 @@ where
     /// Fetch all worksheet data & paths
     fn worksheets(&mut self) -> Vec<(String, Range<Data>)>;
 
+    /// get color
+    fn getcolor(&mut self, row:u16, col:u16) -> Option<String>;
+
     /// Read worksheet formula in corresponding worksheet path
     fn worksheet_formula(&mut self, _: &str) -> Result<Range<String>, Self::Error>;
 

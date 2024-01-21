@@ -5,6 +5,7 @@ use std::convert::TryInto;
 use std::fmt::Write;
 use std::io::{Read, Seek, SeekFrom};
 use std::marker::PhantomData;
+use std::collections::HashMap;
 
 use log::debug;
 
@@ -148,6 +149,9 @@ pub struct Xls<RS> {
     is_1904: bool,
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
+
+    colors: Vec<u16>, //Vec::new(),
+    str_color: HashMap<(u16, u16), u16>, //HashMap::new(),
 }
 
 impl<RS: Read + Seek> Xls<RS> {
@@ -194,6 +198,9 @@ impl<RS: Read + Seek> Xls<RS> {
             formats: Vec::new(),
             #[cfg(feature = "picture")]
             pictures: None,
+
+            colors: Vec::new(),
+            str_color: HashMap::new(),
         };
 
         xls.parse_workbook(reader, cfb)?;
@@ -234,6 +241,27 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
             .collect()
     }
 
+    fn getcolor(&mut self, row:u16, col:u16) -> Option<String>{
+        let opt = self.str_color.get(&(row, col));
+        match opt {
+            Some(&x) => {
+                let s = self.colors.get(x as usize);
+                match s {
+                    Some(x) => {
+                        return Some(x.to_string());
+                    }
+                    None => {
+                        return None
+                    }
+                }
+            }
+            None => {
+                println!("None"); // None
+                None
+            }
+        }
+    }
+
     fn worksheet_formula(&mut self, name: &str) -> Result<Range<String>, XlsError> {
         self.sheets
             .get(name)
@@ -267,6 +295,8 @@ impl<RS: Read + Seek> Xls<RS> {
         let mut xtis = Vec::new();
         let mut formats = BTreeMap::new();
         let mut xfs = Vec::new();
+        let mut colors = Vec::new();
+        let mut str_color = HashMap::new();
         let mut biff = Biff::Biff8; // Binary Interchange File Format (BIFF) version
         let codepage = self.options.force_codepage.unwrap_or(1200);
         let mut encoding = XlsEncoding::from_codepage(codepage)?;
@@ -277,6 +307,7 @@ impl<RS: Read + Seek> Xls<RS> {
             let records = RecordIter { stream: wb };
             for record in records {
                 let mut r = record?;
+                //println!("f type:{}", r.typ);
                 match r.typ {
                     // 2.4.117 FilePass
                     0x002F if read_u16(r.data) != 0 => return Err(XlsError::Password),
@@ -304,7 +335,9 @@ impl<RS: Read + Seek> Xls<RS> {
                     }
                     // XFS
                     0x00E0 => {
-                        xfs.push(parse_xf(&r)?);
+                        let (xf, color) = parse_xf(&r)?;
+                        xfs.push(xf);
+                        colors.push(color);
                     }
                     // RRTabId
                     0x0085 => {
@@ -345,7 +378,9 @@ impl<RS: Read + Seek> Xls<RS> {
                             draw_group.extend(cont.iter().flat_map(|v| *v));
                         }
                     }
-                    0x000A => break, // EOF,
+                    0x000A => {
+                        break // EOF,
+                    }
                     _ => (),
                 }
             }
@@ -390,6 +425,7 @@ impl<RS: Read + Seek> Xls<RS> {
             let mut fmla_pos = (0, 0);
             for record in records {
                 let r = record?;
+                //println!("type:{}", r.typ);
                 match r.typ {
                     // 512: Dimensions
                     0x0200 => {
@@ -399,8 +435,12 @@ impl<RS: Read + Seek> Xls<RS> {
                         cells.reserve(rows.saturating_mul(cols));
                     }
                     //0x0201 => cells.push(parse_blank(r.data)?), // 513: Blank
-                    0x0203 => cells.push(parse_number(r.data, &self.formats, self.is_1904)?), // 515: Number
-                    0x0204 => cells.extend(parse_label(r.data, &encoding, biff)?), // 516: Label [MS-XLS 2.4.148]
+                    0x0203 => {
+                        cells.push(parse_number(r.data, &self.formats, self.is_1904)?) // 515: Number
+                    }
+                    0x0204 => {
+                        cells.extend(parse_label(r.data, &encoding, biff)?) // 516: Label [MS-XLS 2.4.148]
+                    }
                     0x0205 => cells.push(parse_bool_err(r.data)?),                 // 517: BoolErr
                     0x0207 => {
                         // 519 String (formula value)
@@ -408,9 +448,18 @@ impl<RS: Read + Seek> Xls<RS> {
                         cells.push(Cell::new(fmla_pos, val))
                     }
                     0x027E => cells.push(parse_rk(r.data, &self.formats, self.is_1904)?), // 638: Rk
-                    0x00FD => cells.extend(parse_label_sst(r.data, &strings)?), // LabelSst
+                    0x00FD => {
+                        let row = read_u16(r.data);
+                        let col = read_u16(&r.data[2..]);
+                        let format = read_u16(&r.data[4..]);
+                        str_color.insert((row, col), format);
+
+                        cells.extend(parse_label_sst(r.data, &strings)?) // LabelSst
+                    }
                     0x00BD => parse_mul_rk(r.data, &mut cells, &self.formats, self.is_1904)?, // 189: MulRk
-                    0x000A => break, // 10: EOF,
+                    0x000A => {
+                        break // EOF,
+                    } // 10: EOF,
                     0x0006 => {
                         // 6: Formula
                         if r.data.len() < 20 {
@@ -455,6 +504,9 @@ impl<RS: Read + Seek> Xls<RS> {
 
         self.sheets = sheets;
         self.metadata.names = defined_names;
+
+        self.colors = colors;
+        self.str_color = str_color;
 
         #[cfg(feature = "picture")]
         if !draw_group.is_empty() {
@@ -836,7 +888,7 @@ fn parse_sst(r: &mut Record<'_>, encoding: &XlsEncoding) -> Result<Vec<String>, 
 /// Decode XF (extract only ifmt - Format identifier)
 ///
 /// See: https://learn.microsoft.com/ru-ru/openspecs/office_file_formats/ms-xls/993d15c4-ec04-43e9-ba36-594dfb336c6d
-fn parse_xf(r: &Record<'_>) -> Result<u16, XlsError> {
+fn parse_xf(r: &Record<'_>) -> Result<(u16, u16), XlsError> {
     if r.data.len() < 4 {
         return Err(XlsError::Len {
             typ: "xf",
@@ -845,7 +897,20 @@ fn parse_xf(r: &Record<'_>) -> Result<u16, XlsError> {
         });
     }
 
-    Ok(read_u16(&r.data[2..]))
+            // field_1_font_index = in1.ReadShort(); 16
+            // field_2_format_index = in1.ReadShort(); 16
+            // field_3_cell_options = in1.ReadShort(); 16
+            // field_4_alignment_options = in1.ReadShort(); 16
+            // field_5_indention_options = in1.ReadShort(); 16
+            // field_6_border_options = in1.ReadShort(); 16
+            // field_7_palette_options = in1.ReadShort(); 16 
+            // field_8_adtl_palette_options = in1.ReadInt(); 32 
+            // field_9_fill_palette_options = in1.ReadShort(); 16
+    //println!("xf: {}", read_u16(&r.data[18..])&0x7F);
+    // 0010000 0000010 10 红   00 1000000 0001010
+    // 0010000 0000011 01 黄   00 1000000 0001101
+
+    Ok((read_u16(&r.data[2..]), read_u16(&r.data[18..])&0x7F))
 }
 
 /// Decode Format

@@ -169,6 +169,10 @@ where
         None
     }
 
+    fn getcolor(&mut self, row:u16, col:u16) -> Option<String>{
+        None
+    }
+    
     /// Read sheets from workbook.xml and get their corresponding path from relationships
     fn metadata(&self) -> &Metadata {
         &self.metadata

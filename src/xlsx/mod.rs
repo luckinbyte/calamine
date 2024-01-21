@@ -5,6 +5,7 @@ use std::collections::BTreeMap;
 use std::io::BufReader;
 use std::io::{Read, Seek};
 use std::str::FromStr;
+use std::mem;
 
 use log::warn;
 use quick_xml::events::attributes::{Attribute, Attributes};
@@ -22,6 +23,8 @@ use crate::{
     Table,
 };
 pub use cells_reader::XlsxCellReader;
+
+use std::collections::HashMap;
 
 pub(crate) type XlReader<'a> = XmlReader<BufReader<ZipFile<'a>>>;
 
@@ -189,6 +192,10 @@ pub struct Xlsx<RS> {
     is_1904: bool,
     /// Metadata
     metadata: Metadata,
+
+    colors: Vec<String>,
+    str_color: HashMap<(u32, u32), u16>,
+
     /// Pictures
     #[cfg(feature = "picture")]
     pictures: Option<Vec<(String, Vec<u8>)>>,
@@ -282,6 +289,18 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         _ => (),
                     }
                 },
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fgColor" => {
+                    //colors.push(e.unescape().unwrap().into_owned()),
+                    for a in e.attributes(){
+                        match a {
+                            Ok(a) if a.key == QName(b"rgb") => {
+                                let rgb = a.decode_and_unescape_value(&xml)?.to_string();
+                                self.colors.push(rgb)
+                            }
+                            _ => ()
+                        }
+                    }
+                }
                 Ok(Event::End(ref e)) if e.local_name().as_ref() == b"styleSheet" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("styleSheet")),
                 Err(e) => return Err(XlsxError::Xml(e)),
@@ -735,7 +754,8 @@ impl<RS: Read + Seek> Xlsx<RS> {
         let is_1904 = self.is_1904;
         let strings = &self.strings;
         let formats = &self.formats;
-        XlsxCellReader::new(xml, strings, formats, is_1904)
+        let mut str_color = &mut self.str_color;
+        XlsxCellReader::new(xml, strings, formats, is_1904, str_color)
     }
 
     /// Get worksheet range where shared string values are only borrowed
@@ -774,6 +794,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
             formats: Vec::new(),
+            colors: Vec::new(),
+            str_color: HashMap::new(),
             is_1904: false,
             sheets: Vec::new(),
             tables: None,
@@ -803,6 +825,31 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
 
     fn metadata(&self) -> &Metadata {
         &self.metadata
+    }
+
+    fn getcolor(&mut self, row:u16, col:u16) -> Option<String>{
+        let row1 = row as u32;
+        let col1 = col as u32;
+        
+        let opt = self.str_color.get(&(row1, col1));
+        match opt {
+            Some(&x) => {
+                let s = self.colors.get(x as usize);
+                match s {
+                    Some(x) => {
+                        return Some(x.to_string());
+                    }
+                    None => {
+                        return None;
+                    }
+                }
+            }
+            None => {
+                println!("None"); // None
+                None
+            }
+        }
+
     }
 
     fn worksheet_range(&mut self, name: &str) -> Result<Range<Data>, XlsxError> {

@@ -12,11 +12,14 @@ use crate::{
     Cell, XlsxError,
 };
 
+use std::collections::HashMap;
+
 /// An xlsx Cell Iterator
 pub struct XlsxCellReader<'a> {
     xml: XlReader<'a>,
     strings: &'a [String],
     formats: &'a [CellFormat],
+    str_color: &'a mut HashMap<(u32, u32), u16>,
     is_1904: bool,
     dimensions: Dimensions,
     row_index: u32,
@@ -31,6 +34,7 @@ impl<'a> XlsxCellReader<'a> {
         strings: &'a [String],
         formats: &'a [CellFormat],
         is_1904: bool,
+        str_color: &'a mut HashMap<(u32, u32), u16>,
     ) -> Result<Self, XlsxError> {
         let mut buf = Vec::with_capacity(1024);
         let mut dimensions = Dimensions::default();
@@ -62,6 +66,7 @@ impl<'a> XlsxCellReader<'a> {
             xml,
             strings,
             formats,
+            str_color,
             is_1904,
             dimensions,
             row_index: 0,
@@ -101,6 +106,26 @@ impl<'a> XlsxCellReader<'a> {
                     } else {
                         (self.row_index, self.col_index)
                     };
+                    //deal s
+                    // let attribute = get_attribute(c_element.attributes(), QName(b"s"))?;
+                    // color = if let Some(style) = attribute {
+                    //     style.decode_and_unescape_value(&(self.xml))?.to_string()
+                    // } else {
+                    //     0
+                    // };
+
+                    for a in c_element.attributes(){
+                        match a {
+                            Ok(a) if a.key == QName(b"s") => {
+                                let color = a.decode_and_unescape_value(&(self.xml))?.to_string();
+                                let my_int = color.parse::<u16>().unwrap();
+                                (self.str_color).insert(pos, my_int);
+                            }
+                            _ => ()
+                        }
+                    }
+
+
                     let mut value = DataRef::Empty;
                     loop {
                         self.cell_buf.clear();
