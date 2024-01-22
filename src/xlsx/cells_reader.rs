@@ -119,6 +119,7 @@ impl<'a> XlsxCellReader<'a> {
                             Ok(a) if a.key == QName(b"s") => {
                                 let color = a.decode_and_unescape_value(&(self.xml))?.to_string();
                                 let my_int = color.parse::<u16>().unwrap();
+                                //println!("s index {},{},{}", pos.0, pos.1, my_int);
                                 (self.str_color).insert(pos, my_int);
                             }
                             _ => ()

@@ -834,7 +834,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         let opt = self.str_color.get(&(row1, col1));
         match opt {
             Some(&x) => {
-                let s = self.colors.get(x as usize);
+                let s = self.colors.get(x as usize - 1);
                 match s {
                     Some(x) => {
                         return Some(x.to_string());
