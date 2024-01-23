@@ -151,7 +151,7 @@ pub struct Xls<RS> {
     pictures: Option<Vec<(String, Vec<u8>)>>,
 
     colors: Vec<u16>, //Vec::new(),
-    str_color: HashMap<(u16, u16), u16>, //HashMap::new(),
+    str_color: HashMap<(u32, u32), u16>, //HashMap::new(),
 }
 
 impl<RS: Read + Seek> Xls<RS> {
@@ -241,7 +241,7 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
             .collect()
     }
 
-    fn getcolor(&mut self, row:u16, col:u16) -> Option<String>{
+    fn getcolor(&mut self, row:u32, col:u32) -> Option<String>{
         let opt = self.str_color.get(&(row, col));
         match opt {
             Some(&x) => {
@@ -256,7 +256,7 @@ impl<RS: Read + Seek> Reader<RS> for Xls<RS> {
                 }
             }
             None => {
-                println!("None"); // None
+                //println!("None"); // None
                 None
             }
         }
@@ -337,6 +337,7 @@ impl<RS: Read + Seek> Xls<RS> {
                     0x00E0 => {
                         let (xf, color) = parse_xf(&r)?;
                         xfs.push(xf);
+                        //println!("color {}", color);
                         colors.push(color);
                     }
                     // RRTabId
@@ -452,7 +453,8 @@ impl<RS: Read + Seek> Xls<RS> {
                         let row = read_u16(r.data);
                         let col = read_u16(&r.data[2..]);
                         let format = read_u16(&r.data[4..]);
-                        str_color.insert((row, col), format);
+                        //println!("str_color {},{},{}", row as u32, col as u32, format);
+                        str_color.insert((row as u32, col as u32), format);
 
                         cells.extend(parse_label_sst(r.data, &strings)?) // LabelSst
                     }

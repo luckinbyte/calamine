@@ -827,7 +827,7 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         &self.metadata
     }
 
-    fn getcolor(&mut self, row:u16, col:u16) -> Option<String>{
+    fn getcolor(&mut self, row:u32, col:u32) -> Option<String>{
         let row1 = row as u32;
         let col1 = col as u32;
         

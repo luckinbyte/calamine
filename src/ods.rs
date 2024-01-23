@@ -169,7 +169,7 @@ where
         None
     }
 
-    fn getcolor(&mut self, row:u16, col:u16) -> Option<String>{
+    fn getcolor(&mut self, row:u32, col:u32) -> Option<String>{
         None
     }
     
