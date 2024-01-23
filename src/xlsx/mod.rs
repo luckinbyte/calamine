@@ -304,16 +304,29 @@ impl<RS: Read + Seek> Xlsx<RS> {
                 },
                 Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fills" => loop {
                     inner_buf.clear();
+                    let mut get_color = false;
                     match xml.read_event_into(&mut inner_buf) {
-                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fill" => {
-                            self.fill2color.push(
-                                e.attributes()
-                                    .filter_map(|a| a.ok())
-                                    .find(|a| a.key == QName(b"fgColor"))
-                                    .map_or("".to_string(), |a| {
-                                        String::from_utf8_lossy(&a.value).to_string()
-                                    }),
-                            );
+                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fill" => loop {
+                            inner_buf.clear();
+                            match xml.read_event_into(&mut inner_buf) {
+                                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fgColor" => loop {
+                                    let col_str = e.attributes()
+                                        .filter_map(|a| a.ok())
+                                        .find(|a| a.key == QName(b"indexed"))
+                                        .map_or("".to_string(), |a| {
+                                            String::from_utf8_lossy(&a.value).to_string()
+                                        });
+                                    get_color = true;
+                                    self.fill2color.push(col_str);
+                                }
+                                Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fill" => {
+                                    if !get_color{
+                                        self.fill2color.push("".to_string());
+                                    }
+                                    break
+                                },
+                                _ => (),
+                            }
                         }
                         Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fills" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("fills")),
