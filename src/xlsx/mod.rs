@@ -193,8 +193,9 @@ pub struct Xlsx<RS> {
     /// Metadata
     metadata: Metadata,
 
-    colors: Vec<String>,
-    str_color: HashMap<(u32, u32), u16>,
+    fill2color:Vec<String>,
+    xf2fill: Vec<u32>,
+    str_color: HashMap<(u32, u32), u32>,
 
     /// Pictures
     #[cfg(feature = "picture")]
@@ -282,6 +283,18 @@ impl<RS: Read + Seek> Xlsx<RS> {
                                         }
                                     }),
                             );
+                            self.xf2fill.push(
+                                e.attributes()
+                                    .filter_map(|a| a.ok())
+                                    .find(|a| a.key == QName(b"fillId"))
+                                    .map_or(0, |a| {
+                                        let string_value = String::from_utf8_lossy(&a.value);
+                                        match string_value.parse::<u32>(){
+                                            Ok(value) => value,
+                                            _ => 0
+                                        }
+                                    }),
+                            );
                         }
                         Ok(Event::End(ref e)) if e.local_name().as_ref() == b"cellXfs" => break,
                         Ok(Event::Eof) => return Err(XlsxError::XmlEof("cellXfs")),
@@ -289,18 +302,37 @@ impl<RS: Read + Seek> Xlsx<RS> {
                         _ => (),
                     }
                 },
-                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fgColor" => {
-                    //colors.push(e.unescape().unwrap().into_owned()),
-                    for a in e.attributes(){
-                        match a {
-                            Ok(a) if a.key == QName(b"rgb") => {
-                                let rgb = a.decode_and_unescape_value(&xml)?.to_string();
-                                self.colors.push(rgb)
-                            }
-                            _ => ()
+                Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fills" => loop {
+                    inner_buf.clear();
+                    match xml.read_event_into(&mut inner_buf) {
+                        Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fill" => {
+                            self.fill2color.push(
+                                e.attributes()
+                                    .filter_map(|a| a.ok())
+                                    .find(|a| a.key == QName(b"fgColor"))
+                                    .map_or("".to_string(), |a| {
+                                        String::from_utf8_lossy(&a.value).to_string()
+                                    }),
+                            );
                         }
+                        Ok(Event::End(ref e)) if e.local_name().as_ref() == b"fills" => break,
+                        Ok(Event::Eof) => return Err(XlsxError::XmlEof("fills")),
+                        Err(e) => return Err(XlsxError::Xml(e)),
+                        _ => (),
                     }
-                }
+                },
+                // Ok(Event::Start(ref e)) if e.local_name().as_ref() == b"fgColor" => {
+                //     //colors.push(e.unescape().unwrap().into_owned()),
+                //     for a in e.attributes(){
+                //         match a {
+                //             Ok(a) if a.key == QName(b"rgb") => {
+                //                 let rgb = a.decode_and_unescape_value(&xml)?.to_string();
+                //                 self.colors.push(rgb)
+                //             }
+                //             _ => ()
+                //         }
+                //     }
+                // }
                 Ok(Event::End(ref e)) if e.local_name().as_ref() == b"styleSheet" => break,
                 Ok(Event::Eof) => return Err(XlsxError::XmlEof("styleSheet")),
                 Err(e) => return Err(XlsxError::Xml(e)),
@@ -794,7 +826,8 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
             zip: ZipArchive::new(reader)?,
             strings: Vec::new(),
             formats: Vec::new(),
-            colors: Vec::new(),
+            fill2color:Vec::new(),
+            xf2fill: Vec::new(),
             str_color: HashMap::new(),
             is_1904: false,
             sheets: Vec::new(),
@@ -834,18 +867,21 @@ impl<RS: Read + Seek> Reader<RS> for Xlsx<RS> {
         let opt = self.str_color.get(&(row1, col1));
         match opt {
             Some(&x) => {
-                let s = self.colors.get(x as usize - 1);
-                match s {
+                match self.xf2fill.get(x as usize) {
                     Some(x) => {
-                        return Some(x.to_string());
+                        match self.fill2color.get(*x as usize){
+                            Some(x) =>{
+                                Some(x.to_string())
+                            }
+                            _ => None
+                        }
                     }
                     None => {
-                        return None;
+                        None
                     }
                 }
             }
             None => {
-                println!("None"); // None
                 None
             }
         }
